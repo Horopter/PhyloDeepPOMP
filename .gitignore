@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Output files
+*.png
+*.csv
+*.pdf
+*.html
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual environment (ignore entire venv directory)
+venv_phylodeep/
+
+# Keep important files
+!requirements.txt
+!setup_env.sh
+!README.md
+!*.md
+!HIV_Zurich.nwk
