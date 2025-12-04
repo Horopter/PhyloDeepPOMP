@@ -51,6 +51,7 @@ DAEMON_STDERR = DAEMON_DIR / "daemon_stderr.log"
 
 # Individual analysis log files
 MLE_LOG_FILE = DAEMON_DIR / "mle_analysis.log"
+MLE_IMPROVED_LOG_FILE = DAEMON_DIR / "mle_improved_analysis.log"
 PHYLODEEP_LOG_FILE = DAEMON_DIR / "phylodeep_analysis.log"
 BAYESIAN_LOG_FILE = DAEMON_DIR / "bayesian_analysis.log"
 COMPARISON_LOG_FILE = DAEMON_DIR / "comparison.log"
@@ -112,11 +113,21 @@ def kill_all_child_processes(proc, logger):
         Logger instance
     """
     try:
+        # Get all descendants recursively
         children = proc.children(recursive=True)
         if children:
             logger.info(f"Found {len(children)} child processes to kill")
             for child in children:
                 try:
+                    # Also kill grandchildren
+                    grandkids = child.children(recursive=True)
+                    for gk in grandkids:
+                        try:
+                            logger.info(f"  Killing grandchild PID {gk.pid}")
+                            gk.terminate()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                    
                     logger.info(f"  Killing child process PID {child.pid}")
                     child.terminate()
                 except psutil.NoSuchProcess:
@@ -125,7 +136,7 @@ def kill_all_child_processes(proc, logger):
                     logger.warning(f"  Error killing child {child.pid}: {e}")
             
             # Wait for children to terminate
-            gone, alive = psutil.wait_procs(children, timeout=5)
+            gone, alive = psutil.wait_procs(children, timeout=3)
             for p in alive:
                 try:
                     logger.warning(f"  Force killing child process PID {p.pid}")
@@ -156,6 +167,7 @@ def kill_all_analysis_processes(logger):
         analysis_scripts = [
             'bayesian_analysis.py',
             'mle_analysis.py',
+            'mle_improved_analysis.py',
             'phylodeep_analysis.py',
             'daemon_runner.py'
         ]
@@ -356,6 +368,7 @@ def run_analysis_script(script_path: Path, method_name: str, logger,
     # Get the appropriate log file for this analysis
     log_file_map = {
         "MLE": MLE_LOG_FILE,
+        "MLE_Improved": MLE_IMPROVED_LOG_FILE,
         "PhyloDeep": PHYLODEEP_LOG_FILE,
         "Bayesian": BAYESIAN_LOG_FILE
     }
@@ -435,20 +448,30 @@ def run_analysis_script(script_path: Path, method_name: str, logger,
             log_f.write("=" * 80 + "\n\n")
             log_f.flush()
             
-            # Build command with optional --clean flag
+            # Build command with optional --clean flag and --n-jobs for parallel processing
             cmd = [python_exe, str(script_path_rel)]
             if clean_output:
                 cmd.append("--clean")
             
+            # Add --n-jobs for MLE scripts to enable parallel processing
+            # Use -1 (all CPUs) for MLE scripts, similar to Bayesian default
+            if method_name in ["MLE", "MLE_Improved"]:
+                import multiprocessing
+                n_workers = max(1, multiprocessing.cpu_count() - 1)  # Leave one CPU free
+                cmd.extend(["--n-jobs", str(n_workers)])
+            
             # Run the script, redirecting both stdout and stderr to log file
+            # Use unbuffered output to see progress in real-time
             result = subprocess.run(
                 cmd,
                 cwd=str(analysis_dir),  # Run from src/analysis/ for relative imports
                 env=env,  # Include PYTHONPATH for config imports
                 stdout=log_f,  # Redirect stdout to log file
                 stderr=subprocess.STDOUT,  # Redirect stderr to same file
-                text=True
+                text=True,
+                bufsize=0  # Unbuffered output
             )
+            log_f.flush()  # Ensure output is written
         
         elapsed = time.time() - start_time
         
@@ -652,6 +675,7 @@ def cleanup_output_and_logs(project_root, logger):
     from config import (
         OUTPUT_DIR,
         MLE_OUTPUT_DIR,
+        MLE_IMPROVED_OUTPUT_DIR,
         PHYLODEEP_OUTPUT_DIR,
         BAYESIAN_OUTPUT_DIR,
         COMPARISON_OUTPUT_DIR
@@ -664,6 +688,7 @@ def cleanup_output_and_logs(project_root, logger):
     # Clean up output directories
     output_dirs = [
         MLE_OUTPUT_DIR,
+        MLE_IMPROVED_OUTPUT_DIR,
         PHYLODEEP_OUTPUT_DIR,
         BAYESIAN_OUTPUT_DIR,
         COMPARISON_OUTPUT_DIR
@@ -759,6 +784,7 @@ def cleanup_output_and_logs(project_root, logger):
         DAEMON_STDOUT,
         DAEMON_STDERR,
         MLE_LOG_FILE,
+        MLE_IMPROVED_LOG_FILE,
         PHYLODEEP_LOG_FILE,
         BAYESIAN_LOG_FILE,
         COMPARISON_LOG_FILE
@@ -834,6 +860,8 @@ def daemon_main(clean_output: bool = False):
         # Define all analysis scripts
         scripts = {
             "MLE": script_dir / "mle" / "mle_analysis.py",
+            "MLE_Improved": script_dir / "mle_improved" /
+                "mle_improved_analysis.py",
             "PhyloDeep": script_dir / "phylodeep_method" /
                 "phylodeep_analysis.py",
             "Bayesian": script_dir / "bayesian" / "bayesian_analysis.py",
@@ -847,7 +875,7 @@ def daemon_main(clean_output: bool = False):
         analysis_start = time.time()
         results = {}
         
-        with ProcessPoolExecutor(max_workers=3) as executor:
+        with ProcessPoolExecutor(max_workers=4) as executor:
             futures = {
                 executor.submit(
                     run_analysis_script, script, name, logger, clean_output
