@@ -1,0 +1,71 @@
+2025-12-03 23:32:53,821 - INFO - Stopping daemon (PID: 34740)...
+2025-12-03 23:33:03,825 - WARNING - Daemon didn't terminate gracefully, forcing...
+2025-12-03 23:33:03,828 - INFO - Daemon stopped successfully
+2025-12-03 23:33:15,156 - INFO - No daemon process found
+2025-12-03 23:37:26,252 - INFO - No daemon process found
+2025-12-03 23:41:36,223 - INFO - No daemon process found
+2025-12-03 23:41:36,223 - INFO - Checking for orphaned analysis processes...
+2025-12-03 23:41:36,240 - INFO - Killing orphaned analysis process PID 51339: /bin/zsh -o extendedglob -c snap=$(command cat <&3); builtin unsetopt aliases 2>/dev/null; builtin u
+2025-12-03 23:41:36,245 - INFO - Killed 1 orphaned analysis processes
+2025-12-03 23:42:26,472 - INFO - No daemon process found
+2025-12-03 23:42:26,472 - INFO - Checking for orphaned analysis processes...
+2025-12-03 23:42:26,483 - INFO - No orphaned analysis processes found
+2025-12-03 23:43:08,205 - INFO - Starting daemon in background (PRESERVE mode)...
+2025-12-03 23:43:08,207 - INFO - Daemon started with PID: 51778
+2025-12-03 23:43:08,208 - INFO - Logs: /Users/santoshdesai/Documents/Desai_Projects/PhyloDeepPOMP/output/daemon/daemon.log
+2025-12-03 23:43:08,208 - INFO - Stdout: /Users/santoshdesai/Documents/Desai_Projects/PhyloDeepPOMP/output/daemon/daemon_stdout.log
+2025-12-03 23:43:08,208 - INFO - Stderr: /Users/santoshdesai/Documents/Desai_Projects/PhyloDeepPOMP/output/daemon/daemon_stderr.log
+2025-12-03 23:43:08,208 - INFO - Daemon will continue running even if terminal closes
+2025-12-03 23:43:08,209 - INFO - ================================================================================
+2025-12-03 23:43:08,210 - INFO - DAEMON STARTED
+2025-12-03 23:43:08,210 - INFO - ================================================================================
+2025-12-03 23:43:08,210 - INFO - PID: 51779
+2025-12-03 23:43:08,211 - INFO - Log file: /Users/santoshdesai/Documents/Desai_Projects/PhyloDeepPOMP/output/daemon/daemon.log
+2025-12-03 23:43:08,211 - INFO - Working directory: /Users/santoshdesai/Documents/Desai_Projects/PhyloDeepPOMP/src/analysis
+2025-12-03 23:43:08,211 - INFO - Clean output mode: False
+2025-12-03 23:43:08,211 - INFO - ================================================================================
+2025-12-03 23:43:08,212 - INFO - PRESERVE MODE: Keeping existing results and logs
+2025-12-03 23:43:08,212 - INFO - Only missing analyses will be run
+2025-12-03 23:43:08,212 - INFO - ================================================================================
+2025-12-03 23:43:08,213 - INFO - 
+================================================================================
+2025-12-03 23:43:08,213 - INFO - Starting all analyses in parallel...
+2025-12-03 23:43:08,214 - INFO - ================================================================================
+2025-12-03 23:43:09,344 - INFO - [OK] MLE completed
+2025-12-03 23:43:14,101 - INFO - [OK] PhyloDeep completed
+2025-12-03 23:43:48,172 - INFO - Stopping daemon (PID: 51779)...
+2025-12-03 23:43:48,172 - INFO - Killing all child processes...
+2025-12-03 23:43:48,175 - INFO - Found 15 child processes to kill
+2025-12-03 23:43:48,175 - INFO -   Killing child process PID 51781
+2025-12-03 23:43:48,175 - INFO -   Killing child process PID 51787
+2025-12-03 23:43:48,175 - INFO -   Killing child process PID 51791
+2025-12-03 23:43:48,175 - INFO -   Killing child process PID 51795
+2025-12-03 23:43:48,175 - INFO -   Killing child process PID 51852
+2025-12-03 23:43:48,176 - INFO -   Killing child process PID 51862
+2025-12-03 23:43:48,176 - INFO -   Killing child process PID 51863
+2025-12-03 23:43:48,176 - INFO -   Killing child process PID 51864
+2025-12-03 23:43:48,177 - INFO -   Killing child process PID 51865
+2025-12-03 23:43:48,177 - INFO -   Killing child process PID 51866
+2025-12-03 23:43:48,177 - INFO -   Killing child process PID 51867
+2025-12-03 23:43:48,177 - INFO -   Killing child process PID 51868
+2025-12-03 23:43:48,177 - INFO -   Killing child process PID 51869
+2025-12-03 23:43:48,177 - INFO -   Killing child process PID 51870
+2025-12-03 23:43:48,178 - INFO -   Killing child process PID 51871
+2025-12-03 23:43:48,187 - ERROR - Daemon error: A process in the process pool was terminated abruptly while the future was running or pending.
+Traceback (most recent call last):
+  File "/Users/santoshdesai/Documents/Desai_Projects/PhyloDeepPOMP/src/analysis/daemon_runner.py", line 860, in daemon_main
+    success, error, elapsed = future.result()
+                              ^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+concurrent.futures.process.BrokenProcessPool: A process in the process pool was terminated abruptly while the future was running or pending.
+2025-12-03 23:43:48,200 - INFO - Daemon stopped
+2025-12-03 23:43:48,281 - INFO - Daemon process not found (may have already stopped)
+2025-12-03 23:43:48,281 - INFO - Checking for orphaned analysis processes...
+2025-12-03 23:43:48,293 - INFO - No orphaned analysis processes found
+2025-12-03 23:44:13,870 - INFO - No daemon process found
+2025-12-03 23:44:13,870 - INFO - Checking for orphaned analysis processes...
+2025-12-03 23:44:13,881 - INFO - No orphaned analysis processes found

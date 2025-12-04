@@ -31,7 +31,8 @@ from config import (
 )
 
 
-def load_tree_metadata(target_tip_sizes: Optional[List[int]] = None):
+def load_tree_metadata(target_tip_sizes: Optional[List[int]] = None,
+                       min_tip_size: Optional[int] = None):
     """
     Load tree metadata and determine which trees to analyze.
     
@@ -39,7 +40,10 @@ def load_tree_metadata(target_tip_sizes: Optional[List[int]] = None):
     -----------
     target_tip_sizes : list of int, optional
         Specific tip sizes to analyze. If None, analyzes all trees >=
-             MIN_TIP_SIZE.
+             min_tip_size (or MIN_TIP_SIZE if min_tip_size is None).
+    min_tip_size : int, optional
+        Minimum tip size to include. If None, uses MIN_TIP_SIZE from config.
+        Use 0 or None to include all trees (for MLE/Bayesian which work on < 50).
     
     Returns:
     --------
@@ -50,8 +54,14 @@ def load_tree_metadata(target_tip_sizes: Optional[List[int]] = None):
     """
     df_params = pd.read_csv(str(PARAMS_FILE))
     
+    if min_tip_size is None:
+        min_tip_size = MIN_TIP_SIZE
+    
     if target_tip_sizes is None:
-        df_filtered = df_params[df_params['tips'] >= MIN_TIP_SIZE].copy()
+        if min_tip_size > 0:
+            df_filtered = df_params[df_params['tips'] >= min_tip_size].copy()
+        else:
+            df_filtered = df_params.copy()
         target_tip_sizes = sorted(df_filtered['tips'].unique())
     else:
         # Filter to only available sizes
@@ -156,6 +166,7 @@ def process_trees_batch(
     sampling_prob: float = DEFAULT_SAMPLING_PROBA,
     progress_interval: int = 10,
     n_jobs: int = 1,
+    clean_output: bool = False,
     **estimator_kwargs
 ):
     """
@@ -190,9 +201,21 @@ def process_trees_batch(
     print("=" * 80)
     
     # Load metadata
+    # For MLE and Bayesian: use min_tip_size=0 (work on all trees)
+    # For PhyloDeep: use min_tip_size=MIN_TIP_SIZE (default 50)
+    # This is handled by the caller setting target_tip_sizes appropriately
     print("\n[STEP 1] Loading tree metadata...")
     print("-" * 80)
-    df_params, target_tip_sizes = load_tree_metadata(target_tip_sizes)
+    
+    # Determine min_tip_size based on method
+    if method_name == "MLE" or method_name == "Bayesian":
+        min_tip_size = 0  # No minimum for MLE/Bayesian
+    else:
+        min_tip_size = None  # Use MIN_TIP_SIZE from config (for PhyloDeep)
+    
+    df_params, target_tip_sizes = load_tree_metadata(
+        target_tip_sizes, min_tip_size=min_tip_size
+    )
     print(f"Loaded {len(df_params)} tree records")
     print(
         f"Tip size range: {df_params['tips'].min()} - "
@@ -209,12 +232,59 @@ def process_trees_batch(
     )
     print(f"\nAnalyzing trees with tip sizes: {tip_sizes_str}")
     
-    # Delete and recreate output directory for clean results
-    if output_dir.exists():
+    # Handle output directory: clean if requested, otherwise preserve
+    if clean_output and output_dir.exists():
         shutil.rmtree(output_dir)
-        print(f"Cleaned existing output directory: {output_dir}")
+        print(f"[CLEAN] Deleted existing output directory: {output_dir}")
     os.makedirs(output_dir, exist_ok=True)
-    print(f"Created output directory: {output_dir}")
+    if not clean_output:
+        print(f"[PRESERVE] Using existing output directory: {output_dir}")
+    else:
+        print(f"[CLEAN] Created fresh output directory: {output_dir}")
+    
+    # Check for existing result files and filter out completed tip sizes
+    existing_files = {}
+    if output_dir.exists():
+        for result_file in output_dir.glob(f"{method_name.lower()}_results_n*.csv"):
+            # Extract tip size from filename (e.g., "mle_results_n50.csv" -> 50)
+            try:
+                tip_size = int(
+                    result_file.stem.split('_n')[-1]
+                )
+                if tip_size in target_tip_sizes:
+                    # Check if file has data
+                    try:
+                        df_existing = pd.read_csv(result_file)
+                        if len(df_existing) > 0:
+                            existing_files[tip_size] = result_file
+                    except Exception:
+                        pass  # File exists but may be corrupted
+            except (ValueError, IndexError):
+                pass
+    
+    # Filter target_tip_sizes to only missing ones
+    if existing_files and not clean_output:
+        missing_sizes = [
+            s for s in target_tip_sizes if s not in existing_files
+        ]
+        if missing_sizes:
+            print(
+                f"\n[INFO] Found {len(existing_files)} existing result files. "
+                f"Only processing {len(missing_sizes)} missing tip sizes: "
+                f"{missing_sizes[:10]}{'...' if len(missing_sizes) > 10 else ''}"
+            )
+            target_tip_sizes = missing_sizes
+        else:
+            print(
+                f"\n[INFO] All {len(existing_files)} tip sizes already have "
+                "results. Skipping analysis."
+            )
+            return pd.DataFrame()
+    elif existing_files:
+        print(
+            f"\n[CLEAN] Found {len(existing_files)} existing files, but "
+            "clean_output=True, so will regenerate all."
+        )
     
     print(f"\n[STEP 2] Running {method_name} on trees...")
     print("-" * 80)

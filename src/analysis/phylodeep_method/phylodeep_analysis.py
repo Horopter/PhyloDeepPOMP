@@ -6,10 +6,24 @@ Uses the unified batch processor with PhyloDeep library.
 Author: Santosh Desai <santoshdesai12@hotmail.com>
 """
 
+import sys
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Setup environment first (adds paths)
+# Setup paths before any imports
+# Get the analysis directory (parent of this file's parent)
+_script_file = Path(__file__).resolve()
+_analysis_dir = _script_file.parent.parent
+_project_root = _analysis_dir.parent.parent
+
+# Add to Python path if not already there
+if str(_analysis_dir) not in sys.path:
+    sys.path.insert(0, str(_analysis_dir))
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+# Now we can import
 from utils.common import setup_analysis_environment
 setup_analysis_environment(__file__)
 
@@ -121,6 +135,7 @@ def phylodeep_estimator(tree_file: str, sampling_prob: float):
 
 if __name__ == "__main__":
     import argparse
+    from config import MIN_TIP_SIZE
     
     parser = argparse.ArgumentParser(description="Run PhyloDeep analysis")
     parser.add_argument(
@@ -132,12 +147,30 @@ if __name__ == "__main__":
             "N > 1 = parallel with N workers)"
         )
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete existing results before running (default: preserve and only run missing)"
+    )
     args = parser.parse_args()
     
-    process_trees_batch(
-        estimator_func=phylodeep_estimator,
-        output_dir=PHYLODEEP_OUTPUT_DIR,
-        method_name="PhyloDeep",
-        sampling_prob=DEFAULT_SAMPLING_PROBA,
-        n_jobs=args.n_jobs,
-    )
+    # PhyloDeep requires tip size >= MIN_TIP_SIZE (default 50)
+    # Filter target_tip_sizes to only include >= MIN_TIP_SIZE
+    from utils.batch_processor import load_tree_metadata
+    df_params, _ = load_tree_metadata(None)
+    available_sizes = sorted(df_params['tips'].unique())
+    target_tip_sizes = [s for s in available_sizes if s >= MIN_TIP_SIZE]
+    
+    if not target_tip_sizes:
+        print(f"No trees with tip size >= {MIN_TIP_SIZE} found!")
+        print(f"PhyloDeep requires minimum {MIN_TIP_SIZE} tips.")
+    else:
+        process_trees_batch(
+            estimator_func=phylodeep_estimator,
+            output_dir=PHYLODEEP_OUTPUT_DIR,
+            method_name="PhyloDeep",
+            target_tip_sizes=target_tip_sizes,
+            sampling_prob=DEFAULT_SAMPLING_PROBA,
+            n_jobs=args.n_jobs,
+            clean_output=args.clean,
+        )

@@ -147,8 +147,9 @@ class BayesianBirthDeath:
 
         return log_likelihood
 
-    def estimate_bd(self, draws=2000, tune=1000, chains=4,
+    def estimate_bd(self, draws=5000, tune=3000, chains=4,
                     lambda_prior='uniform', mu_prior='uniform',
+                    target_accept=0.95, max_treedepth=15,
                     return_inference_data=False):
         """
         Estimate BD parameters using MCMC sampling.
@@ -160,15 +161,19 @@ class BayesianBirthDeath:
         Parameters:
         -----------
         draws : int
-            Number of MCMC samples (default: 2000)
+            Number of MCMC samples (default: 5000 for strong ESS)
         tune : int
-            Burn-in samples (default: 1000)
+            Burn-in samples (default: 3000 for better convergence)
         chains : int
-            Number of chains for diagnostics (default: 2)
+            Number of chains for diagnostics (default: 4)
         lambda_prior : str
             Prior type: 'uniform' or 'exponential' (default: 'uniform')
         mu_prior : str
             Prior type: 'uniform' or 'exponential' (default: 'uniform')
+        target_accept : float
+            Target acceptance rate for NUTS (default: 0.95 to reduce divergences)
+        max_treedepth : int
+            Maximum tree depth for NUTS (default: 15)
         return_inference_data : bool
             If True, return full ArviZ object for diagnostics (default: False)
 
@@ -198,23 +203,19 @@ class BayesianBirthDeath:
 
                 if mu_prior == 'uniform':
                     # Need mu < lambda for positive net diversification
-                    # Use a simpler approach: set upper bound to a fixed
-                    # value and enforce constraint via Potential using
-                    # simple arithmetic
                     mu_param = pm.Uniform('mu', lower=0.01, upper=9.99)
                     # Constraint: mu must be less than lambda
-                    # Use simple arithmetic penalty instead of switch to
-                    # avoid compatibility issues
+                    # Use penalty to enforce constraint
+                    # Reduced penalty magnitude to be less harsh and reduce
+                    # divergences
                     diff = lambda_param - mu_param
-                    # Large penalty if diff is negative or very small
-                    # (mu >= lambda). Use pm.math.maximum to avoid switch
-                    penalty = -1e10 * pm.math.maximum(0.0, 1e-6 - diff)
+                    penalty = -1e6 * pm.math.maximum(0.0, 1e-6 - diff)
                     pm.Potential('mu_lt_lambda', penalty)
                 elif mu_prior == 'exponential':
                     mu_param = pm.Exponential('mu', lam=1.0)
                     # Constraint: mu must be less than lambda
                     diff = lambda_param - mu_param
-                    penalty = -1e10 * pm.math.maximum(0.0, 1e-6 - diff)
+                    penalty = -1e6 * pm.math.maximum(0.0, 1e-6 - diff)
                     pm.Potential('mu_lt_lambda', penalty)
                 else:
                     raise ValueError(f"Unknown mu_prior: {mu_prior}")
@@ -225,13 +226,19 @@ class BayesianBirthDeath:
                     self._stadler_loglikelihood(lambda_param, mu_param)
                 )
 
-                # Run MCMC
+                # Run MCMC with high-quality settings for convergence
+                # target_accept=0.95 reduces divergences
+                # max_treedepth=15 prevents tree depth warnings
+                # More draws and tune for better ESS and R-hat
                 trace = pm.sample(
                     draws=draws,
                     tune=tune,
                     chains=chains,
+                    target_accept=target_accept,
+                    max_treedepth=max_treedepth,
                     return_inferencedata=True,
-                    progressbar=False
+                    progressbar=False,
+                    compute_convergence_checks=True
                 )
 
             # Get posterior samples

@@ -163,6 +163,7 @@
     \begin{itemize}
         \item Includes $-r \cdot T$ term to help identify $\mu$
         \item Accounts for probability of observing $n$ tips given $\lambda$ and $\mu$
+        \item Critical for separating $\mu$ from $\lambda$ in the likelihood
     \end{itemize}
     
     \vspace{0.3cm}
@@ -170,7 +171,7 @@
     \begin{itemize}
         \item Penalty: $-0.1 \log(\mu)$ when $\mu < 0.1$ and $n > 10$
         \item Prevents $\mu$ from getting stuck at lower bound (0.01)
-        \item Encourages realistic death rate estimates
+        \item Encourages realistic death rate estimates based on tree size
     \end{itemize}
     
     \vspace{0.3cm}
@@ -178,7 +179,14 @@
     \begin{itemize}
         \item Checks for invalid trees ($n \leq 1$, $T_{\text{total}} \leq 0$)
         \item Handles optimization failures gracefully
-        \item Returns success status and diagnostic information
+        \item Returns success status, log-likelihood, and iteration count
+    \end{itemize}
+    
+    \vspace{0.3cm}
+    \textbf{4. Method-of-Moments Initialization}
+    \begin{itemize}
+        \item Smart starting values: $\hat{r} = \log(n)/T$, $\hat{\lambda} = (n-1)/T_{\text{total}}$
+        \item Ensures faster convergence and avoids local minima
     \end{itemize}
 \end{frame}
 
@@ -190,6 +198,7 @@
         \item \textcolor{deepgreen}{✓} Works on small trees ($n < 50$)
         \item \textcolor{deepgreen}{✓} Provides optimization diagnostics
         \item \textcolor{deepgreen}{✓} Fast computation (seconds per tree)
+        \item \textcolor{deepgreen}{✓} Based on well-established Stadler (2010) theory
     \end{itemize}
     
     \vspace{0.3cm}

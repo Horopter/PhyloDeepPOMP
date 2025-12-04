@@ -100,8 +100,131 @@ def write_pid_file(pid):
         f.write(str(pid))
 
 
+def kill_all_child_processes(proc, logger):
+    """
+    Recursively kill all child processes of a given process.
+    
+    Parameters:
+    -----------
+    proc : psutil.Process
+        Parent process
+    logger : logging.Logger
+        Logger instance
+    """
+    try:
+        children = proc.children(recursive=True)
+        if children:
+            logger.info(f"Found {len(children)} child processes to kill")
+            for child in children:
+                try:
+                    logger.info(f"  Killing child process PID {child.pid}")
+                    child.terminate()
+                except psutil.NoSuchProcess:
+                    pass  # Already dead
+                except Exception as e:
+                    logger.warning(f"  Error killing child {child.pid}: {e}")
+            
+            # Wait for children to terminate
+            gone, alive = psutil.wait_procs(children, timeout=5)
+            for p in alive:
+                try:
+                    logger.warning(f"  Force killing child process PID {p.pid}")
+                    p.kill()
+                except psutil.NoSuchProcess:
+                    pass
+                except Exception as e:
+                    logger.warning(f"  Error force killing {p.pid}: {e}")
+    except psutil.NoSuchProcess:
+        pass  # Parent already dead
+    except Exception as e:
+        logger.warning(f"Error getting child processes: {e}")
+
+
+def kill_all_analysis_processes(logger):
+    """
+    Kill all analysis-related processes (MLE, Bayesian, PhyloDeep).
+    This is a safety function to clean up orphaned processes.
+    
+    Parameters:
+    -----------
+    logger : logging.Logger
+        Logger instance
+    """
+    try:
+        # Find all Python processes related to our analyses
+        # Be specific: look for actual Python scripts, not just any mention
+        analysis_scripts = [
+            'bayesian_analysis.py',
+            'mle_analysis.py',
+            'phylodeep_analysis.py',
+            'daemon_runner.py'
+        ]
+        
+        killed_count = 0
+        current_pid = os.getpid()
+        
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                # Skip current process
+                if proc.pid == current_pid:
+                    continue
+                
+                # Must be a Python process
+                proc_name = proc.info.get('name', '').lower()
+                if 'python' not in proc_name:
+                    continue
+                
+                cmdline = proc.info.get('cmdline', [])
+                if not cmdline or len(cmdline) < 2:
+                    continue
+                
+                # Check if any argument is one of our analysis scripts
+                # This ensures we only match actual script executions, not
+                # just mentions in other contexts
+                is_analysis_process = False
+                for arg in cmdline:
+                    if any(script in arg for script in analysis_scripts):
+                        is_analysis_process = True
+                        break
+                
+                if is_analysis_process:
+                    cmdline_str = ' '.join(cmdline[:3])  # First few args
+                    logger.info(
+                        f"Killing orphaned analysis process PID {proc.pid}: "
+                        f"{cmdline_str}"
+                    )
+                    try:
+                        proc.terminate()
+                        killed_count += 1
+                    except psutil.NoSuchProcess:
+                        pass
+                    except Exception as e:
+                        logger.warning(
+                            f"Error terminating PID {proc.pid}: {e}"
+                        )
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            except Exception as e:
+                # Silently skip errors for processes we can't access
+                pass
+        
+        if killed_count > 0:
+            logger.info(f"Killed {killed_count} orphaned analysis processes")
+            # Give processes time to die
+            time.sleep(2)
+        else:
+            logger.info("No orphaned analysis processes found")
+            
+    except Exception as e:
+        logger.warning(f"Error killing analysis processes: {e}")
+
+
 def stop_daemon():
-    """Stop the running daemon."""
+    """Stop the running daemon and all its child processes."""
     logger = setup_logging()
     pid = get_daemon_pid()
     
@@ -114,11 +237,21 @@ def stop_daemon():
                 logger.info("Removed stale PID file")
             except Exception as e:
                 logger.warning(f"Could not remove stale PID file: {e}")
+        
+        # Still try to kill any orphaned analysis processes
+        logger.info("Checking for orphaned analysis processes...")
+        kill_all_analysis_processes(logger)
         return False
     
     try:
         proc = psutil.Process(pid)
         logger.info(f"Stopping daemon (PID: {pid})...")
+        
+        # First, kill all child processes
+        logger.info("Killing all child processes...")
+        kill_all_child_processes(proc, logger)
+        
+        # Then terminate the main daemon process
         proc.terminate()
         
         # Wait for graceful shutdown
@@ -126,6 +259,8 @@ def stop_daemon():
             proc.wait(timeout=10)
         except psutil.TimeoutExpired:
             logger.warning("Daemon didn't terminate gracefully, forcing...")
+            # Kill children again in case new ones were spawned
+            kill_all_child_processes(proc, logger)
             proc.kill()
             proc.wait(timeout=5)  # Wait a bit more after kill
         
@@ -133,6 +268,13 @@ def stop_daemon():
         if DAEMON_PID_FILE.exists():
             DAEMON_PID_FILE.unlink()
             logger.info("Removed PID file")
+        
+        # Give processes time to fully terminate
+        time.sleep(1)
+        
+        # Final cleanup: kill any remaining orphaned processes
+        logger.info("Final cleanup: checking for remaining orphaned processes...")
+        kill_all_analysis_processes(logger)
         
         logger.info("Daemon stopped successfully")
         return True
@@ -145,6 +287,10 @@ def stop_daemon():
                 logger.info("Removed stale PID file")
             except Exception as e:
                 logger.warning(f"Could not remove stale PID file: {e}")
+        
+        # Still try to kill any orphaned analysis processes
+        logger.info("Checking for orphaned analysis processes...")
+        kill_all_analysis_processes(logger)
         return False
     except Exception as e:
         logger.error(f"Error stopping daemon: {e}")
@@ -157,6 +303,10 @@ def stop_daemon():
                 logger.warning(
                     f"Could not remove PID file after error: {cleanup_error}"
                 )
+        
+        # Try to kill orphaned processes even on error
+        logger.info("Attempting to kill orphaned processes...")
+        kill_all_analysis_processes(logger)
         return False
 
 
@@ -185,8 +335,21 @@ def daemon_status():
         return False
 
 
-def run_analysis_script(script_path: Path, method_name: str, logger):
-    """Run a single analysis script with its own log file."""
+def run_analysis_script(script_path: Path, method_name: str, logger,
+                        clean_output: bool = False):
+    """Run a single analysis script with its own log file.
+    
+    Parameters:
+    -----------
+    script_path : Path
+        Path to the analysis script
+    method_name : str
+        Name of the method (for logging)
+    logger : logging.Logger
+        Logger instance
+    clean_output : bool
+        If True, pass --clean flag to the script
+    """
     logger.info(f"Starting {method_name} analysis...")
     start_time = time.time()
     
@@ -272,12 +435,15 @@ def run_analysis_script(script_path: Path, method_name: str, logger):
             log_f.write("=" * 80 + "\n\n")
             log_f.flush()
             
+            # Build command with optional --clean flag
+            cmd = [python_exe, str(script_path_rel)]
+            if clean_output:
+                cmd.append("--clean")
+            
             # Run the script, redirecting both stdout and stderr to log file
             result = subprocess.run(
-                [python_exe, str(script_path_rel)],
-                cwd=
-                    str(analysis_dir),
-                        # Run from src/analysis/ for relative imports
+                cmd,
+                cwd=str(analysis_dir),  # Run from src/analysis/ for relative imports
                 env=env,  # Include PYTHONPATH for config imports
                 stdout=log_f,  # Redirect stdout to log file
                 stderr=subprocess.STDOUT,  # Redirect stderr to same file
@@ -612,12 +778,19 @@ def cleanup_output_and_logs(project_root, logger):
     logger.info("=" * 80)
 
 
-def daemon_main():
-    """Main daemon function."""
+def daemon_main(clean_output: bool = False):
+    """Main daemon function.
+    
+    Parameters:
+    -----------
+    clean_output : bool
+        If True, delete all previous output and logs before running.
+        If False (default), preserve existing results and only run missing analyses.
+    """
     # Get project root for cleanup
     project_root = get_project_root()
     
-    # Setup initial logging (will be cleared and re-setup after cleanup)
+    # Setup initial logging
     logger = setup_logging()
     
     logger.info("=" * 80)
@@ -626,15 +799,21 @@ def daemon_main():
     logger.info(f"PID: {os.getpid()}")
     logger.info(f"Log file: {DAEMON_LOG_FILE}")
     logger.info(f"Working directory: {os.getcwd()}")
+    logger.info(f"Clean output mode: {clean_output}")
     
-    # Clean up output directories and log files BEFORE starting
-    cleanup_output_and_logs(project_root, logger)
-    
-    # Re-setup logging after clearing log files
-    logger = setup_logging()
-    logger.info("=" * 80)
-    logger.info("DAEMON STARTED (after cleanup)")
-    logger.info("=" * 80)
+    # Clean up output directories and log files ONLY if requested
+    if clean_output:
+        cleanup_output_and_logs(project_root, logger)
+        # Re-setup logging after clearing log files
+        logger = setup_logging()
+        logger.info("=" * 80)
+        logger.info("DAEMON STARTED (after cleanup)")
+        logger.info("=" * 80)
+    else:
+        logger.info("=" * 80)
+        logger.info("PRESERVE MODE: Keeping existing results and logs")
+        logger.info("Only missing analyses will be run")
+        logger.info("=" * 80)
     
     # Write PID file
     write_pid_file(os.getpid())
@@ -671,7 +850,7 @@ def daemon_main():
         with ProcessPoolExecutor(max_workers=3) as executor:
             futures = {
                 executor.submit(
-                    run_analysis_script, script, name, logger
+                    run_analysis_script, script, name, logger, clean_output
                 ): name
                 for name, script in scripts.items()
             }
@@ -738,8 +917,15 @@ def daemon_main():
         logger.info("Daemon stopped")
 
 
-def start_daemon():
-    """Start the daemon in background."""
+def start_daemon(clean_output: bool = False):
+    """Start the daemon in background.
+    
+    Parameters:
+    -----------
+    clean_output : bool
+        If True, delete all previous output and logs before running.
+        If False (default), preserve existing results and only run missing analyses.
+    """
     logger = setup_logging()
     
     # Check if already running
@@ -748,7 +934,10 @@ def start_daemon():
         daemon_status()
         return False
     
-    logger.info("Starting daemon in background...")
+    if clean_output:
+        logger.info("Starting daemon in background (CLEAN mode)...")
+    else:
+        logger.info("Starting daemon in background (PRESERVE mode)...")
     
     # Redirect stdout/stderr to files
     stdout_fd = open(DAEMON_STDOUT, 'a')
@@ -785,6 +974,9 @@ def start_daemon():
             os.chdir(str(analysis_dir))
             os.umask(0)  # Reset file mode
             
+            # Set environment variable to pass clean_output flag
+            os.environ['DAEMON_CLEAN_OUTPUT'] = str(clean_output)
+            
             # Redirect standard file descriptors
             sys.stdout.flush()
             sys.stderr.flush()
@@ -805,7 +997,7 @@ def start_daemon():
             stderr_fd.close()
             
             # Run main daemon function
-            daemon_main()
+            daemon_main(clean_output=clean_output)
             os._exit(0)
             
     except OSError as e:
@@ -825,11 +1017,16 @@ def main():
         choices=['start', 'stop', 'status', 'restart'],
         help='Daemon command'
     )
+    parser.add_argument(
+        '--clean',
+        action='store_true',
+        help='Delete all previous results and logs before running (default: preserve and only run missing)'
+    )
     
     args = parser.parse_args()
     
     if args.command == 'start':
-        start_daemon()
+        start_daemon(clean_output=args.clean)
     elif args.command == 'stop':
         stop_daemon()
     elif args.command == 'status':
@@ -837,7 +1034,7 @@ def main():
     elif args.command == 'restart':
         stop_daemon()
         time.sleep(2)
-        start_daemon()
+        start_daemon(clean_output=args.clean)
 
 
 if __name__ == "__main__":

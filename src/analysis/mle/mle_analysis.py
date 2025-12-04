@@ -6,7 +6,22 @@ Uses the unified batch processor with the MLE estimator class.
 Author: Santosh Desai <santoshdesai12@hotmail.com>
 """
 
-# Setup environment first (adds paths)
+import sys
+from pathlib import Path
+
+# Setup paths before any imports
+# Get the analysis directory (parent of this file's parent)
+_script_file = Path(__file__).resolve()
+_analysis_dir = _script_file.parent.parent
+_project_root = _analysis_dir.parent.parent
+
+# Add to Python path if not already there
+if str(_analysis_dir) not in sys.path:
+    sys.path.insert(0, str(_analysis_dir))
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+# Now we can import
 from utils.common import setup_analysis_environment
 setup_analysis_environment(__file__)
 
@@ -55,7 +70,14 @@ if __name__ == "__main__":
             "N > 1 = parallel with N workers)"
         )
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete existing results before running (default: preserve and only run missing)"
+    )
     args = parser.parse_args()
+    
+    print("Note: MLE works on all tip sizes (no minimum requirement)")
     
     process_trees_batch(
         estimator_func=mle_estimator,
@@ -63,4 +85,5 @@ if __name__ == "__main__":
         method_name="MLE",
         sampling_prob=DEFAULT_SAMPLING_PROBA,
         n_jobs=args.n_jobs,
+        clean_output=args.clean,
     )

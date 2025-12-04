@@ -6,8 +6,22 @@ Uses the unified batch processor with the Bayesian estimator class.
 Author: Santosh Desai <santoshdesai12@hotmail.com>
 """
 
-# Setup environment first (adds paths)
 import sys
+from pathlib import Path
+
+# Setup paths before any imports
+# Get the analysis directory (parent of this file's parent)
+_script_file = Path(__file__).resolve()
+_analysis_dir = _script_file.parent.parent
+_project_root = _analysis_dir.parent.parent
+
+# Add to Python path if not already there
+if str(_analysis_dir) not in sys.path:
+    sys.path.insert(0, str(_analysis_dir))
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+# Now we can import
 from utils.common import setup_analysis_environment
 setup_analysis_environment(__file__)
 
@@ -27,15 +41,17 @@ except ImportError:
     sys.exit(1)
 
 
-def bayesian_estimator(tree_file: str, sampling_prob: float, draws=1000,
-                       tune=500, chains=4):
+def bayesian_estimator(tree_file: str, sampling_prob: float, draws=5000,
+                       tune=3000, chains=4, target_accept=0.95,
+                       max_treedepth=15):
     """Estimate parameters using Bayesian MCMC."""
     try:
         estimator = BayesianBirthDeath(
             tree_file, sampling_prob=sampling_prob
         )
         result = estimator.estimate_bd(
-            draws=draws, tune=tune, chains=chains
+            draws=draws, tune=tune, chains=chains,
+            target_accept=target_accept, max_treedepth=max_treedepth
         )
 
         if result.get('success', False):
@@ -109,20 +125,31 @@ if __name__ == "__main__":
         action="store_true",
         help="Force sequential processing (overrides --n-jobs)"
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete existing results before running (default: preserve and only run missing)"
+    )
     args = parser.parse_args()
 
     n_jobs_to_use = 1 if args.sequential else args.n_jobs
 
     print("Note: Bayesian analysis is slower than MLE/PhyloDeep")
 
+    print("Note: Bayesian analysis is slower than MLE/PhyloDeep")
+    print("Note: Bayesian works on all tip sizes (no minimum requirement)")
+
     process_trees_batch(
         estimator_func=bayesian_estimator,
         output_dir=BAYESIAN_OUTPUT_DIR,
         method_name="Bayesian",
         sampling_prob=DEFAULT_SAMPLING_PROBA,
-        draws=1000,
-        tune=500,
+        draws=5000,  # Increased for strong ESS
+        tune=3000,  # Increased for better convergence
         chains=4,  # Use 4 chains for robust diagnostics
+        target_accept=0.95,  # High target to reduce divergences
+        max_treedepth=15,  # Prevent tree depth warnings
         progress_interval=1,  # Show progress for each tree (slower method)
         n_jobs=n_jobs_to_use,
+        clean_output=args.clean,
     )
